@@ -1,0 +1,30 @@
+# Imaging data and model weights are never committed (downloaded by scripts)
+data/
+checkpoints/
+third_party/
+*.dcm
+*.nii
+*.nii.gz
+*.pt
+*.pth
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# e2e scratch output
+e2e-out/

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Promptable CT Segmentation (demo)</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="banner">NOT FOR CLINICAL USE: research/portfolio demo on public de-identified data</div>
+    <div id="app">
+      <aside id="sidebar">
+        <section>
+          <h2>Series</h2>
+          <select id="series-picker"><option value="">Loading…</option></select>
+        </section>
+
+        <section>
+          <h2>AI</h2>
+          <button id="btn-auto" disabled>Auto-segment (TotalSegmentator)</button>
+          <div class="hint" id="device-info"></div>
+        </section>
+
+        <section>
+          <h2>Tools</h2>
+          <div class="row" id="mode-buttons">
+            <button class="secondary active" data-mode="navigate" title="Window/level (left), pan (middle), zoom (right), scroll (wheel)">Navigate</button>
+            <button class="secondary" data-mode="prompt" title="Click = include, Shift+click = exclude, Ctrl+drag on axial = box">Click-to-segment</button>
+            <button class="secondary" data-mode="brush">Brush</button>
+            <button class="secondary" data-mode="eraser">Eraser</button>
+          </div>
+          <label class="row">Brush <input id="brush-size" type="range" min="1" max="40" value="8" /> <span id="brush-size-label">8 mm</span></label>
+          <div class="row">
+            <button class="secondary" id="btn-undo" title="Ctrl+Z">Undo</button>
+            <button class="secondary" id="btn-redo" title="Ctrl+Y">Redo</button>
+          </div>
+          <div id="prompt-panel" class="hidden">
+            <div class="hint">Click = include · Shift+click = exclude · Ctrl+drag (axial) = box. Each prompt re-runs MedSAM2 with all points.</div>
+            <div class="row">
+              <span>Target:</span> <strong id="prompt-target">new segment</strong>
+            </div>
+            <div class="row">
+              <button class="secondary" id="btn-prompt-new">New target</button>
+              <button class="secondary" id="btn-prompt-clear">Clear points</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="grow">
+          <h2>Segments <span id="segment-count"></span></h2>
+          <input id="segment-filter" type="search" placeholder="Filter…" />
+          <div class="row">
+            <button class="secondary small" id="btn-show-all">Show all</button>
+            <button class="secondary small" id="btn-hide-all">Hide all</button>
+            <button class="secondary small" id="btn-new-segment">+ Manual segment</button>
+          </div>
+          <ul id="segment-list"></ul>
+        </section>
+
+        <section>
+          <h2>Export</h2>
+          <button id="btn-export" disabled>Export DICOM-SEG → PACS</button>
+          <button class="secondary" id="btn-reload-seg" disabled>Load SEG from PACS</button>
+        </section>
+
+        <section id="status-panel">
+          <h2>Status</h2>
+          <div id="status">Idle</div>
+        </section>
+      </aside>
+      <main id="viewports">
+        <div class="vp" id="vp-axial" data-label="Axial"></div>
+        <div class="vp" id="vp-sagittal" data-label="Sagittal"></div>
+        <div class="vp" id="vp-coronal" data-label="Coronal"></div>
+        <div class="vp" id="vp-3d" data-label="3D (volume rendering)"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

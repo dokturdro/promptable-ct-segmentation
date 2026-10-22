@@ -1,0 +1,31 @@
+{
+  "name": "promptable-seg-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "e2e": "node e2e/demo-flow.mjs ../docs/screenshots",
+    "e2e:ohif": "node e2e/ohif-check.mjs 1.2.826.0.1.3680043.2.1125.1.38381854871216336385978062044218957 ../docs/screenshots"
+  },
+  "dependencies": {
+    "@cornerstonejs/core": "5.13.1",
+    "@cornerstonejs/dicom-image-loader": "5.13.1",
+    "@cornerstonejs/tools": "5.13.1",
+    "events": "^3.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "playwright-core": "^1.64.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

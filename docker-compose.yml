@@ -1,0 +1,26 @@
+services:
+  orthanc:
+    image: orthancteam/orthanc:26.9.1
+    container_name: promptable-orthanc
+    restart: unless-stopped
+    # Bound to localhost only: authentication is disabled for the demo.
+    ports:
+      - "127.0.0.1:8042:8042"   # HTTP: REST API, DICOMweb, Orthanc Explorer, OHIF
+      - "127.0.0.1:4242:4242"   # DICOM DIMSE (e.g. for 3D Slicer)
+    environment:
+      ORTHANC__NAME: "promptable-demo"
+      ORTHANC__AUTHENTICATION_ENABLED: "false"
+      ORTHANC__REMOTE_ACCESS_ALLOWED: "true"
+      ORTHANC__DICOM_AET: "ORTHANC"
+      DICOM_WEB_PLUGIN_ENABLED: "true"
+      ORTHANC__DICOM_WEB__ROOT: "/dicom-web/"
+      # Serve full DICOM JSON metadata (needed by Cornerstone for volume geometry).
+      ORTHANC__DICOM_WEB__STUDIES_METADATA: "Full"
+      ORTHANC__DICOM_WEB__SERIES_METADATA: "Full"
+      # Built-in OHIF viewer: independent check that our DICOM-SEG loads.
+      OHIF_PLUGIN_ENABLED: "true"
+    volumes:
+      - orthanc-db:/var/lib/orthanc/db
+
+volumes:
+  orthanc-db:
