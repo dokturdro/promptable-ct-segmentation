@@ -16,8 +16,9 @@ from pathlib import Path
 
 import httpx
 
-REPO = Path(__file__).resolve().parents[1]
-RAW_DIR = REPO / "data" / "raw"
+from app.config import settings
+
+RAW_DIR = settings().raw_dir
 DEFAULT_PATIENTS = ["PANCREAS_0001"]
 
 
@@ -64,7 +65,7 @@ def upload(dirs: list[Path], orthanc: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--patients", nargs="+", default=DEFAULT_PATIENTS)
-    ap.add_argument("--orthanc", default="http://127.0.0.1:8042")
+    ap.add_argument("--orthanc", default=settings().orthanc_url)
     ap.add_argument("--download-only", action="store_true")
     ap.add_argument("--upload-only", action="store_true")
     args = ap.parse_args()

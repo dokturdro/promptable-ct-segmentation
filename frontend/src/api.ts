@@ -48,6 +48,12 @@ export interface WorldPoint {
   label: 0 | 1;
 }
 
+/** Two opposite corners on one axial slice, LPS mm. */
+export interface WorldBox {
+  p0: number[];
+  p1: number[];
+}
+
 export interface ExportSegment {
   label: number;
   name: string;
@@ -100,7 +106,7 @@ export const submitPrompt = (
   studyUID: string,
   seriesUID: string,
   points: WorldPoint[],
-  box?: { p0: number[]; p1: number[] },
+  box?: WorldBox,
 ) => postJson<{ jobId: string }>('/segment/prompt', { studyUID, seriesUID, points, box });
 
 export async function waitForJob<R>(jobId: string, onUpdate: (job: Job<R>) => void): Promise<Job<R>> {

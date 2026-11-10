@@ -1,12 +1,12 @@
 import { Enums, type Types } from '@cornerstonejs/core';
 
-import type { WorldPoint } from './api';
+import type { WorldBox, WorldPoint } from './api';
 import { getMode } from './tools';
 import { MPR_VIEWPORTS, getEngine } from './viewer';
 
 export interface PromptState {
   points: WorldPoint[];
-  box?: { p0: number[]; p1: number[] };
+  box?: WorldBox;
 }
 
 const state: PromptState = { points: [] };

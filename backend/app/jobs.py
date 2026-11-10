@@ -14,6 +14,7 @@ from typing import Any, Literal
 import numpy as np
 
 Status = Literal["queued", "running", "done", "failed"]
+MAX_JOBS = 50
 
 
 @dataclass
@@ -43,11 +44,10 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, max_jobs: int = 50) -> None:
+    def __init__(self) -> None:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="seg-worker")
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
-        self._max_jobs = max_jobs
 
     def submit(self, kind: str, fn: Callable[[Job], None]) -> Job:
         job = Job(id=uuid.uuid4().hex[:12], kind=kind)
@@ -55,7 +55,7 @@ class JobManager:
             self._jobs[job.id] = job
             # Drop the oldest finished jobs (and their voxel payloads).
             done = [j for j in self._jobs.values() if j.status in ("done", "failed")]
-            excess = max(0, len(self._jobs) - self._max_jobs)
+            excess = max(0, len(self._jobs) - MAX_JOBS)
             for old in sorted(done, key=lambda j: j.created)[:excess]:
                 del self._jobs[old.id]
         self._pool.submit(self._run, job, fn)

@@ -22,6 +22,19 @@ class Settings:
     def series_cache(self) -> Path:
         return self.data_dir / "cache" / "series"
 
+    @property
+    def raw_dir(self) -> Path:
+        """Seed data downloaded from IDC, one folder per patient."""
+        return self.data_dir / "raw"
+
+    @property
+    def medsam2_checkpoint(self) -> Path:
+        return self.checkpoint_dir / "medsam2" / "MedSAM2_latest.pt"
+
+    @property
+    def totalseg_home(self) -> Path:
+        return self.checkpoint_dir / "totalseg"
+
 
 @cache
 def settings() -> Settings:

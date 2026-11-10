@@ -1,5 +1,25 @@
 # Promptable 3D CT segmentation demo
 
+Browser CT viewer that segments organs automatically (TotalSegmentator) or from clicks and boxes
+(MedSAM2), with brush editing and DICOM-SEG export to an Orthanc PACS.
+
+## Quick start
+
+Needs uv, Node.js, Docker and PowerShell. A CUDA GPU is optional: on CPU, TotalSegmentator uses
+its 3 mm model and MedSAM2 propagates only ±25 slices.
+
+```powershell
+.\scripts\dev.ps1 setup     # Python + npm dependencies
+.\scripts\dev.ps1 weights   # model weights, 1.4 GB
+.\scripts\dev.ps1 up        # Orthanc on :8042
+.\scripts\dev.ps1 seed      # one public CT from NCI IDC, 128 MB
+.\scripts\dev.ps1 backend   # terminal 1: API on :8000
+.\scripts\dev.ps1 frontend  # terminal 2: http://localhost:5173
+```
+
+Pick the series, then **Auto-segment**, or **Click-to-segment** and click an organ.
+`.\scripts\dev.ps1 check` runs the linters and tests.
+
 ```mermaid
 flowchart LR
   subgraph Browser["Browser (Vite + TypeScript)"]

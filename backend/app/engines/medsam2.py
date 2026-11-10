@@ -27,6 +27,7 @@ CONFIG_NAME = "sam2.1_hiera_t512.yaml"
 IMAGE_SIZE = 512
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+WINDOW = (-160.0, 240.0)  # soft tissue W400/L40
 
 
 def _build_predictor(checkpoint: Path, device: str):
@@ -44,25 +45,19 @@ def _build_predictor(checkpoint: Path, device: str):
 class MedSAM2Engine:
     name = "medsam2"
 
-    def __init__(
-        self,
-        checkpoint: Path | None = None,
-        window: tuple[float, float] = (-160.0, 240.0),  # soft tissue W400/L40
-        max_slices_each_way: int | None = None,
-    ) -> None:
+    def __init__(self) -> None:
         self.device = torch_device()
-        self.checkpoint = checkpoint or settings().checkpoint_dir / "medsam2" / "MedSAM2_latest.pt"
-        if not self.checkpoint.exists():
-            raise FileNotFoundError(f"{self.checkpoint} missing; run scripts/download_weights.py")
-        self.window = window
+        checkpoint = settings().medsam2_checkpoint
+        if not checkpoint.exists():
+            raise FileNotFoundError(f"{checkpoint} missing; run scripts/download_weights.py")
         # CPU is ~100x slower per slice: bound the propagation range there.
-        self.max_slices = max_slices_each_way or (400 if self.device == "cuda" else 25)
-        self._predictor = _build_predictor(self.checkpoint, self.device)
+        self.max_slices = 400 if self.device == "cuda" else 25
+        self._predictor = _build_predictor(checkpoint, self.device)
         self._lock = threading.Lock()
 
     def _preprocess(self, vol: np.ndarray) -> torch.Tensor:
         """(d, h, w) HU -> (d, 3, 512, 512) normalised float tensor on device."""
-        lo, hi = self.window
+        lo, hi = WINDOW
         x = torch.from_numpy(np.clip((vol.astype(np.float32) - lo) / (hi - lo), 0.0, 1.0))
         x = x.to(self.device)[:, None]  # (d, 1, h, w)
         # Bilinear resize (the reference script uses PIL bilinear on uint8 slices).
@@ -76,11 +71,9 @@ class MedSAM2Engine:
         self,
         image: sitk.Image,
         points: list[PointPrompt],
+        boxes: list[BoxPrompt],
         progress: Progress,
-        boxes: list[BoxPrompt] | None = None,
-        text: str | None = None,
     ) -> PromptResult:
-        boxes = boxes or []
         if not boxes and not any(p.label == 1 for p in points):
             raise ValueError("need a box or at least one positive (include) point")
         vol = sitk.GetArrayViewFromImage(image)  # (k, j, i)
@@ -141,7 +134,7 @@ class MedSAM2Engine:
                 "device": self.device,
                 "seconds": time.perf_counter() - t0,
                 "slices": [k0, k1],
-                "window": list(self.window),
+                "window": list(WINDOW),
             },
         )
 

@@ -15,9 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
-from pathlib import Path
 
 os.environ.setdefault("TQDM_DISABLE", "1")
 
@@ -26,13 +24,17 @@ import numpy as np  # noqa: E402
 import SimpleITK as sitk  # noqa: E402
 from scipy import ndimage  # noqa: E402
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "backend"))
-
+from app.config import settings  # noqa: E402
 from app.engines.base import BoxPrompt, PointPrompt  # noqa: E402
 from app.engines.medsam2 import MedSAM2Engine  # noqa: E402
 from app.engines.totalseg import TotalSegmentatorEngine  # noqa: E402
-from app.volume import image_from_affine, read_dicom_series, resample_labels_to  # noqa: E402
+from app.volume import (  # noqa: E402
+    Geometry,
+    image_from_affine,
+    read_dicom_series,
+    resample_labels_to,
+    voxel_volume_ml,
+)
 
 ORGANS = {"spleen": 1, "kidney_left": 3, "liver": 5, "pancreas": 7}
 MODES = ["click1", "click3", "box", "box+click"]
@@ -82,9 +84,9 @@ def main() -> None:
     ap.add_argument("--modes", nargs="+", default=MODES, choices=MODES)
     args = ap.parse_args()
 
-    raw = REPO / "data" / "raw" / args.patient
+    raw = settings().raw_dir / args.patient
     img, _ = read_dicom_series(next(raw.glob("CT_*")))
-    cached = REPO / "data" / "totalseg_fast0.nii.gz"
+    cached = settings().data_dir / "totalseg_fast0.nii.gz"
     if cached.exists():
         ts = sitk.GetArrayFromImage(sitk.ReadImage(str(cached)))
     else:
@@ -97,7 +99,7 @@ def main() -> None:
         refs["pancreas"] = sitk.GetArrayFromImage(resample_labels_to(ref, img)) > 0
 
     engine = MedSAM2Engine()
-    vox_ml = float(np.prod(img.GetSpacing())) / 1000
+    vox_ml = voxel_volume_ml(Geometry.of(img))
     print(f"{'organ':12} {'prompt':>10} {'Dice':>6} {'pred mL':>8} {'ref mL':>7} {'sec':>5}")
     for name, ref in refs.items():
         if not ref.any():
@@ -106,7 +108,7 @@ def main() -> None:
         for mode in args.modes:
             pts, boxes = prompts_for(ref, mode)
             t = time.perf_counter()
-            pred = engine.segment_prompt(img, pts, lambda _m: None, boxes=boxes).mask
+            pred = engine.segment_prompt(img, pts, boxes, lambda _m: None).mask
             p = sitk.GetArrayFromImage(pred) > 0
             print(
                 f"{name:12} {mode:>10} {dice(p, ref):6.3f} {p.sum() * vox_ml:8.0f} "

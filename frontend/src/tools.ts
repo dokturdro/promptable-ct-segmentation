@@ -4,7 +4,6 @@ import {
   ToolGroupManager,
   WindowLevelTool,
   addTool,
-  segmentation,
   utilities as toolUtils,
 } from '@cornerstonejs/tools';
 
@@ -44,8 +43,4 @@ export function setMode(next: Mode): void {
 
 export function setBrushSize(mm: number): void {
   toolUtils.segmentation.setBrushSizeForToolGroup(MPR_TOOLGROUP_ID, mm);
-}
-
-export function setActiveSegment(segmentationId: string, label: number): void {
-  segmentation.segmentIndex.setActiveSegmentIndex(segmentationId, label);
 }

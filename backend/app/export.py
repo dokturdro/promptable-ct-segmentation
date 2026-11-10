@@ -1,8 +1,9 @@
-"""Label map -> DICOM-SEG (highdicom), referencing the source CT series."""
+"""Label map <-> DICOM-SEG (highdicom), referencing the source CT series."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import itertools
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import highdicom as hd
@@ -11,10 +12,11 @@ import pydicom
 import SimpleITK as sitk
 from pydicom.sr.codedict import codes
 
-from app.labels import Code, SegmentInfo
+from app.labels import FIRST_USER_LABEL, Code, SegmentInfo, segment_info, totalseg_catalogue
 from app.volume import image_from_affine, resample_labels_to
 
 SOFTWARE = "promptable-ct-seg-demo 0.1"
+SERIES_DESCRIPTION = "AI segmentation (demo, not for clinical use)"
 
 
 @dataclass(frozen=True)
@@ -84,7 +86,6 @@ def build_seg(
     source_images: list[pydicom.Dataset],
     labels: np.ndarray,
     segments: list[ExportSegment],
-    series_description: str = "AI segmentation (demo, not for clinical use)",
 ) -> pydicom.Dataset:
     """``labels`` is (k, j, i) on the source grid, k in the same order as ``source_images``.
 
@@ -120,7 +121,7 @@ def build_seg(
         device_serial_number="0",
         content_label="SEGMENTATION",
         content_description="Not for clinical use",
-        series_description=series_description,
+        series_description=SERIES_DESCRIPTION,
     )
     _ensure_slice_thickness(seg_ds, source_images)
     return seg_ds
@@ -128,10 +129,8 @@ def build_seg(
 
 @dataclass(frozen=True)
 class ReadSegment:
-    number: int  # DICOM segment number in the SEG
-    name: str
+    info: SegmentInfo  # colour from the SEG when it has one
     algorithm: str
-    color: tuple[int, int, int] | None
 
 
 def read_seg_onto(
@@ -139,21 +138,26 @@ def read_seg_onto(
 ) -> tuple[np.ndarray, list[ReadSegment]]:
     """Decodes a (non-overlapping) SEG and maps it onto ``reference``'s grid.
 
-    Returns a (k, j, i) uint8 array whose values are the SEG's segment numbers.
+    Returns a (k, j, i) uint8 label map in our label space: segments named like a
+    TotalSegmentator class get that class's label, the others ``FIRST_USER_LABEL`` and up.
     """
     seg = hd.seg.Segmentation.from_dataset(seg_ds)
     vol = seg.get_volume(combine_segments=True, relabel=False)
     img = image_from_affine(vol.array.astype(np.uint8), vol.affine)
-    labels = sitk.GetArrayFromImage(resample_labels_to(img, sitk.Cast(reference, sitk.sitkUInt8)))
+    numbers = sitk.GetArrayFromImage(resample_labels_to(img, sitk.Cast(reference, sitk.sitkUInt8)))
+
+    label_of_class = {info.name: label for label, info in totalseg_catalogue().items()}
+    user_labels = itertools.count(FIRST_USER_LABEL)
+    label_of_number = np.zeros(256, np.uint8)
     segments = []
     for d in seg.SegmentSequence:
-        color = None
+        name = str(d.SegmentLabel)
+        label = label_of_class.get(name) or next(user_labels)
+        label_of_number[int(d.SegmentNumber)] = label
+        info = segment_info(label, name)
         if "RecommendedDisplayCIELabValue" in d:
             lab = hd.color.CIELabColor.from_dicom_value(d.RecommendedDisplayCIELabValue)
-            color = tuple(int(c) for c in lab.to_rgb())
-        segments.append(
-            ReadSegment(
-                int(d.SegmentNumber), str(d.SegmentLabel), str(d.SegmentAlgorithmType), color
-            )
-        )
-    return labels.astype(np.uint8), segments
+            r, g, b = (int(c) for c in lab.to_rgb())
+            info = replace(info, color=(r, g, b))
+        segments.append(ReadSegment(info, str(d.SegmentAlgorithmType)))
+    return label_of_number[numbers], segments

@@ -1,4 +1,4 @@
-"""Download model weights into ./checkpoints (gitignored).
+"""Download model weights into ./checkpoints (gitignored; override with CHECKPOINT_DIR).
 
   MedSAM2_latest.pt         148.8 MB  huggingface.co/wanglab/MedSAM2
                                       CC-BY-SA-4.0, research/education use only
@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import sys
 from pathlib import Path
 
 import httpx
 
-REPO = Path(__file__).resolve().parents[1]
-CKPT = REPO / "checkpoints"
+from app.config import settings
+from app.engines.totalseg import prepare_totalseg_home
+
 MEDSAM2_URL = "https://huggingface.co/wanglab/MedSAM2/resolve/main/MedSAM2_latest.pt"
 MEDSAM2_SHA256 = "c92743b99f00d078bf32a3afcc38aaa9faf1c1692dffe3eaa7a90938c1991060"
 TOTALSEG_TASK_IDS = [291, 292, 293, 294, 295, 297]  # `total` full res (5 parts) + 3 mm fast
@@ -34,9 +34,9 @@ def sha256(path: Path) -> str:
 
 
 def download_medsam2() -> None:
-    dest = CKPT / "medsam2" / "MedSAM2_latest.pt"
+    dest = settings().medsam2_checkpoint
     if dest.exists() and sha256(dest) == MEDSAM2_SHA256:
-        print(f"ok   {dest.relative_to(REPO)}")
+        print(f"ok   {dest}")
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")
@@ -50,21 +50,16 @@ def download_medsam2() -> None:
         tmp.unlink()
         sys.exit("MedSAM2 checkpoint hash mismatch: refusing to use it")
     tmp.replace(dest)
-    print(f"ok   {dest.relative_to(REPO)}")
+    print(f"ok   {dest}")
 
 
 def download_totalseg() -> None:
-    home = CKPT / "totalseg"
-    home.mkdir(parents=True, exist_ok=True)
-    os.environ["TOTALSEG_HOME_DIR"] = str(home)
-    from totalsegmentator.config import set_config_key, setup_totalseg
+    prepare_totalseg_home()
     from totalsegmentator.libs import download_pretrained_weights
 
-    setup_totalseg()
-    set_config_key("send_usage_stats", False)  # no telemetry from this demo
     for task_id in TOTALSEG_TASK_IDS:
         download_pretrained_weights(task_id)
-    print(f"ok   {home.relative_to(REPO)} (usage statistics disabled)")
+    print(f"ok   {settings().totalseg_home} (usage statistics disabled)")
 
 
 def main() -> None:

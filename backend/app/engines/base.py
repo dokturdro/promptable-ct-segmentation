@@ -1,10 +1,10 @@
-"""Engine interface. Engines take and return SimpleITK images on the source CT grid (LPS)."""
+"""Engine prompts and results. Engines take and return SimpleITK images on the CT grid (LPS)."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal
 
 import SimpleITK as sitk
 
@@ -45,24 +45,3 @@ class AutoResult:
 class PromptResult:
     mask: sitk.Image  # uint8 binary mask on the CT grid
     meta: dict = field(default_factory=dict)
-
-
-@runtime_checkable
-class AutoSegmentationEngine(Protocol):
-    name: str
-
-    def segment(self, image: sitk.Image, progress: Progress) -> AutoResult: ...
-
-
-@runtime_checkable
-class PromptSegmentationEngine(Protocol):
-    name: str
-
-    def segment_prompt(
-        self,
-        image: sitk.Image,
-        points: list[PointPrompt],
-        progress: Progress,
-        boxes: list[BoxPrompt] | None = None,
-        text: str | None = None,
-    ) -> PromptResult: ...

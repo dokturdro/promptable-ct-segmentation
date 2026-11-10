@@ -1,6 +1,7 @@
 import { cache, utilities as csUtils, volumeLoader, type Types } from '@cornerstonejs/core';
 import { Enums as ToolEnums, segmentation, type Types as ToolTypes } from '@cornerstonejs/tools';
 
+import type { ExportSegment } from './api';
 import { mapBackendToVolume, scatter, gather, type AxisMapping, type BackendGeometry } from './geometry';
 import { MPR_VIEWPORT_IDS } from './viewer';
 
@@ -19,23 +20,24 @@ export interface SegmentState {
 type CsSegment = ToolTypes.Segment;
 
 const { DefaultHistoryMemo } = csUtils.HistoryMemo;
-const FIRST_USER_LABEL = 200; // TotalSegmentator uses 1..117
+export const FIRST_USER_LABEL = 200; // TotalSegmentator uses 1..117
 
 let segmentationId: string | undefined;
 let labelmap: Types.IImageVolume | undefined;
-let ctVolume: Types.IImageVolume | undefined;
 export const segments = new Map<number, SegmentState>();
 const listeners = new Set<() => void>();
 
 export const onSegmentsChanged = (fn: () => void) => listeners.add(fn);
-export const notify = () => listeners.forEach((fn) => fn());
+const notify = () => listeners.forEach((fn) => fn());
 
 export function getSegmentationId(): string | undefined {
   return segmentationId;
 }
 
-export function getCtVolume(): Types.IImageVolume | undefined {
-  return ctVolume;
+/** The segment that brush and eraser strokes paint into. */
+export function setActiveSegment(label: number): void {
+  if (!segmentationId) throw new Error('no segmentation');
+  segmentation.segmentIndex.setActiveSegmentIndex(segmentationId, label);
 }
 
 /** Creates an empty labelmap on the CT grid and shows it in the MPR viewports. */
@@ -46,7 +48,6 @@ export async function initSegmentation(volume: Types.IImageVolume): Promise<void
     if (labelmap) cache.removeVolumeLoadObject(labelmap.volumeId);
   }
   segments.clear();
-  ctVolume = volume;
   segmentationId = `seg-${volume.volumeId.split(':').pop()}`;
   labelmap = volumeLoader.createAndCacheDerivedLabelmapVolume(volume.volumeId, {
     volumeId: `${segmentationId}-labelmap`,
@@ -136,11 +137,11 @@ export function applyStyle(label: number): void {
   }
 }
 
-/** Replaces the whole labelmap with an automatic result (backend (k, j, i) order). */
-export function applyAutoResult(
+/** Replaces the whole labelmap (backend (k, j, i) order) and upserts its segments. */
+export function replaceLabelmap(
   geometry: BackendGeometry,
   labels: Uint8Array,
-  segs: { label: number; name: string; color: [number, number, number] }[],
+  segs: Pick<SegmentState, 'label' | 'name' | 'color' | 'source'>[],
 ): void {
   const m = mappingFor(geometry);
   const data = voxels().getCompleteScalarDataArray!() as Uint8Array;
@@ -154,8 +155,8 @@ export function applyAutoResult(
       after.push(v);
     }
   });
-  for (const s of segs) upsertSegment({ ...s, source: 'auto' });
-  commitDiff(idx, before, after, 'auto-segmentation');
+  for (const s of segs) upsertSegment(s);
+  commitDiff(idx, before, after, 'replace-labelmap');
 }
 
 /**
@@ -194,6 +195,28 @@ export function nextUserLabel(): number {
   while (segments.has(l)) l++;
   if (l > 255) throw new Error('too many segments');
   return l;
+}
+
+/** A segment's provenance as DICOM-SEG algorithm type and identification. */
+export function toExportSegment(s: SegmentState): ExportSegment {
+  const base = { label: s.label, name: s.name, color: s.color };
+  if (s.source === 'manual') return { ...base, algorithm: 'MANUAL' };
+  if (s.source === 'prompt') {
+    return { ...base, algorithm: 'SEMIAUTOMATIC', algorithmName: 'MedSAM2', algorithmVersion: 'MedSAM2_latest' };
+  }
+  return {
+    ...base,
+    algorithm: s.edited ? 'SEMIAUTOMATIC' : 'AUTOMATIC',
+    algorithmName: 'TotalSegmentator',
+    algorithmVersion: '2.18.0',
+  };
+}
+
+/** Inverse of {@link toExportSegment} for a segment read back from a DICOM-SEG. */
+export function sourceFromAlgorithm(algorithm: string): SegmentSource {
+  if (algorithm === 'MANUAL') return 'manual';
+  if (algorithm === 'SEMIAUTOMATIC') return 'prompt';
+  return 'auto';
 }
 
 /** Labelmap in backend (k, j, i) order for export. */

@@ -14,9 +14,9 @@ from app.labels import totalseg_catalogue
 from app.volume import Geometry, nifti_to_sitk, resample_labels_to, sitk_to_nifti
 
 
-def _prepare_totalseg_home() -> None:
+def prepare_totalseg_home() -> None:
     """Keep weights inside the repo and make sure usage statistics are never sent."""
-    home = settings().checkpoint_dir / "totalseg"
+    home = settings().totalseg_home
     home.mkdir(parents=True, exist_ok=True)
     os.environ["TOTALSEG_HOME_DIR"] = str(home)
     from totalsegmentator.config import set_config_key, setup_totalseg
@@ -32,7 +32,7 @@ class TotalSegmentatorEngine:
         self.device = torch_device()
         # Full 1.5 mm model on GPU; the 3 mm model on CPU (full-res on CPU takes many minutes).
         self.fast = (self.device == "cpu") if fast is None else fast
-        _prepare_totalseg_home()
+        prepare_totalseg_home()
 
     def segment(self, image: sitk.Image, progress: Progress) -> AutoResult:
         from totalsegmentator.python_api import totalsegmentator
@@ -53,7 +53,7 @@ class TotalSegmentatorEngine:
             raise RuntimeError("label map geometry does not match the source CT")
         labels = sitk.Cast(labels, sitk.sitkUInt8)
         present = np.unique(sitk.GetArrayViewFromImage(labels))
-        catalogue = totalseg_catalogue("total")
+        catalogue = totalseg_catalogue()
         segments = {int(v): catalogue[int(v)] for v in present if v != 0 and int(v) in catalogue}
         return AutoResult(
             labels=labels,

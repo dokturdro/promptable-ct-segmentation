@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from functools import cache
 from typing import Annotated, Literal
 
@@ -21,9 +22,9 @@ from app.engines.medsam2 import MedSAM2Engine  # noqa: E402
 from app.engines.totalseg import TotalSegmentatorEngine  # noqa: E402
 from app.export import ExportSegment, build_seg, read_seg_onto  # noqa: E402
 from app.jobs import Job, jobs  # noqa: E402
-from app.labels import segment_info, totalseg_catalogue  # noqa: E402
+from app.labels import segment_info  # noqa: E402
 from app.pacs import list_segs, load_series, retrieve_instance, stow  # noqa: E402
-from app.volume import Geometry, label_volumes_ml  # noqa: E402
+from app.volume import Geometry, label_volumes_ml, voxel_volume_ml  # noqa: E402
 
 app = FastAPI(title="Promptable CT segmentation demo (not for clinical use)")
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
@@ -63,7 +64,6 @@ class WorldBox(BaseModel):
 class PromptRequest(SeriesRef):
     points: list[WorldPoint] = Field(default_factory=list)
     box: WorldBox | None = None
-    text: str | None = None
 
 
 def _to_index(img: sitk.Image, xyz: tuple[float, float, float]) -> tuple[int, int, int]:
@@ -108,34 +108,20 @@ def seg_load(req: SegRef) -> dict:
         if req.seriesUID not in refs:
             raise ValueError("this SEG does not reference the selected CT series")
         job.message = "Decoding SEG…"
-        numbers, read = read_seg_onto(ds, ct.image)
-
-        # Back to our label space: TotalSegmentator classes keep their label, others get 200+.
-        by_name = {info.name: lbl for lbl, info in totalseg_catalogue().items()}
-        lut = np.zeros(256, np.uint8)
-        segments, next_user = [], 200
-        for r in read:
-            label = by_name.get(r.name)
-            if label is None:
-                label, next_user = next_user, next_user + 1
-            lut[r.number] = label
-            info = segment_info(label, r.name)
-            segments.append(
-                {
-                    **info.to_json(),
-                    "color": list(r.color or info.color),
-                    "algorithm": r.algorithm,
-                }
-            )
-        labels = lut[numbers]
+        labels, read = read_seg_onto(ds, ct.image)
         geom = Geometry.of(ct.image)
         vols = label_volumes_ml(labels, geom)
-        for s in segments:
-            s["volumeMl"] = round(vols.get(s["label"], 0.0), 1)
         job.array = labels
         job.result = {
             "geometry": geom.to_json(),
-            "segments": segments,
+            "segments": [
+                {
+                    **r.info.to_json(),
+                    "algorithm": r.algorithm,
+                    "volumeMl": round(vols.get(r.info.label, 0.0), 1),
+                }
+                for r in read
+            ],
             "sopInstanceUID": req.segSOPInstanceUID,
         }
 
@@ -190,7 +176,7 @@ def segment_prompt(req: PromptRequest) -> dict:
         def progress(msg: str) -> None:
             job.message = msg
 
-        res = prompt_engine().segment_prompt(img, points, progress, boxes=boxes, text=req.text)
+        res = prompt_engine().segment_prompt(img, points, boxes, progress)
         mask = sitk.GetArrayFromImage(res.mask).astype(np.uint8)
         nz = np.argwhere(mask)
         geom = Geometry.of(res.mask)
@@ -204,7 +190,7 @@ def segment_prompt(req: PromptRequest) -> dict:
             "geometry": geom.to_json(),
             # Crop of the full (k, j, i) grid: start index and shape, both in (k, j, i) order.
             "crop": {"start": lo.tolist(), "shape": (hi - lo).tolist()},
-            "volumeMl": round(float(mask.sum()) * float(np.prod(geom.spacing)) / 1000, 1),
+            "volumeMl": round(float(mask.sum()) * voxel_volume_ml(geom), 1),
             "meta": res.meta,
         }
 
@@ -231,7 +217,7 @@ def get_job_labelmap(job_id: str) -> Response:
 class ExportSegmentIn(BaseModel):
     label: int = Field(ge=1, le=255)
     name: str
-    color: tuple[int, int, int] | None = None
+    color: tuple[int, int, int]
     algorithm: Literal["AUTOMATIC", "SEMIAUTOMATIC", "MANUAL"] = "MANUAL"
     algorithmName: str | None = None
     algorithmVersion: str | None = None
@@ -254,19 +240,15 @@ def export_dicom_seg(meta: Annotated[str, Form()], labelmap: Annotated[UploadFil
         )
     labels = np.frombuffer(raw, dtype=np.uint8).reshape(size_k, size_j, size_i)
 
-    catalogue = {info.name: info for info in totalseg_catalogue().values()}
-    segments = []
-    for s in m.segments:
-        base = catalogue.get(s.name) or segment_info(s.label, s.name)
-        info = type(base)(
-            label=s.label,
-            name=s.name,
-            color=tuple(s.color) if s.color else base.color,  # type: ignore[arg-type]
-            category=base.category,
-            type=base.type,
-            type_modifier=base.type_modifier,
+    segments = [
+        ExportSegment(
+            replace(segment_info(s.label, s.name), color=s.color),
+            s.algorithm,
+            s.algorithmName,
+            s.algorithmVersion,
         )
-        segments.append(ExportSegment(info, s.algorithm, s.algorithmName, s.algorithmVersion))
+        for s in m.segments
+    ]
 
     try:
         seg = build_seg(series.source_datasets(), labels, segments)

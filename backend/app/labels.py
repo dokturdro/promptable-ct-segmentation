@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import csv
 from dataclasses import dataclass
 from functools import cache
@@ -41,6 +42,8 @@ class SegmentInfo:
 ANATOMICAL_STRUCTURE = Code("SCT", "123037004", "Anatomical Structure")
 # Fallback for structures without a curated code (e.g. a user-drawn region).
 TISSUE = Code("SCT", "85756007", "Tissue")
+# Labels of segments that are not TotalSegmentator classes (those use 1..117).
+FIRST_USER_LABEL = 200
 
 
 def _code(row: dict, prefix: str) -> Code | None:
@@ -63,8 +66,6 @@ def _snomed_rows() -> dict[str, dict]:
 
 def _default_color(label: int) -> tuple[int, int, int]:
     # Golden-angle hue walk: distinct, deterministic colours for uncoded labels.
-    import colorsys
-
     r, g, b = colorsys.hsv_to_rgb((label * 0.381966) % 1.0, 0.65, 0.95)
     return int(r * 255), int(g * 255), int(b * 255)
 
@@ -73,11 +74,11 @@ def segment_info(label: int, name: str) -> SegmentInfo:
     row = _snomed_rows().get(name)
     if row is None:
         return SegmentInfo(label, name, _default_color(label), ANATOMICAL_STRUCTURE, TISSUE)
-    color = tuple(int(c) for c in row["DicomRGBColor"].split(","))
+    r, g, b = (int(c) for c in row["DicomRGBColor"].split(","))
     return SegmentInfo(
         label=label,
         name=name,
-        color=color,  # type: ignore[arg-type]
+        color=(r, g, b),
         category=_code(row, "SegmentedPropertyCategoryCodeSequence") or ANATOMICAL_STRUCTURE,
         type=_code(row, "SegmentedPropertyTypeCodeSequence") or TISSUE,
         type_modifier=_code(row, "SegmentedPropertyTypeModifierCodeSequence"),
@@ -85,7 +86,8 @@ def segment_info(label: int, name: str) -> SegmentInfo:
 
 
 @cache
-def totalseg_catalogue(task: str = "total") -> dict[int, SegmentInfo]:
+def totalseg_catalogue() -> dict[int, SegmentInfo]:
+    """Classes of the TotalSegmentator `total` task, keyed by their label value."""
     from totalsegmentator.map_to_binary import class_map
 
-    return {int(k): segment_info(int(k), v) for k, v in class_map[task].items()}
+    return {int(k): segment_info(int(k), v) for k, v in class_map["total"].items()}

@@ -6,7 +6,7 @@ import { createImageIds, listSeries, type SeriesInfo } from './dicomweb';
 import type { BackendGeometry } from './geometry';
 import { clearPrompts, getPromptState, initPromptInteraction } from './prompt';
 import * as seg from './segmentation';
-import { initEditTools, setActiveSegment, setBrushSize, setMode, type Mode } from './tools';
+import { initEditTools, setBrushSize, setMode, type Mode } from './tools';
 import { createViewer, initCornerstone, loadVolume } from './viewer';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -95,8 +95,7 @@ function refreshVolumes(): void {
 function selectTarget(label: number): void {
   targetLabel = label;
   promptTarget = label;
-  const id = seg.getSegmentationId();
-  if (id) setActiveSegment(id, label);
+  seg.setActiveSegment(label);
   $('prompt-target').textContent = seg.segments.get(label)?.name ?? 'new segment';
   renderSegments();
 }
@@ -116,9 +115,7 @@ async function loadSeries(s: SeriesInfo): Promise<void> {
   await seg.initSegmentation(volume);
   volumes = new Map();
   renderSegments();
-  ($('btn-auto') as HTMLButtonElement).disabled = false;
-  ($('btn-export') as HTMLButtonElement).disabled = false;
-  ($('btn-reload-seg') as HTMLButtonElement).disabled = false;
+  for (const id of ['btn-auto', 'btn-export', 'btn-reload-seg']) $<HTMLButtonElement>(id).disabled = false;
   status(`Loaded ${imageIds.length} slices in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
 }
 
@@ -137,7 +134,7 @@ async function runAuto(): Promise<void> {
     status('Downloading label map…');
     const labels = await api.fetchJobLabelmap(jobId);
     geometry = r.geometry;
-    seg.applyAutoResult(r.geometry, labels, r.segments);
+    seg.replaceLabelmap(r.geometry, labels, r.segments.map((s) => ({ ...s, source: 'auto' })));
     volumes = seg.computeVolumesMl();
     renderSegments();
     const liver = r.segments.find((x) => x.name === 'liver');
@@ -174,7 +171,7 @@ async function runPrompt(): Promise<void> {
       promptTarget = seg.nextUserLabel();
       seg.upsertSegment({
         label: promptTarget,
-        name: `region_${promptTarget - 199}`,
+        name: `region_${promptTarget - seg.FIRST_USER_LABEL + 1}`,
         color: [255, 215, 0],
         source: 'prompt',
       });
@@ -206,23 +203,10 @@ async function runExport(): Promise<void> {
   volumes = seg.computeVolumesMl();
   const present = [...seg.segments.values()].filter((s) => (volumes.get(s.label) ?? 0) > 0);
   if (!present.length) return fail(new Error('Nothing to export.'));
-  const segments: api.ExportSegment[] = present.map((s) => ({
-    label: s.label,
-    name: s.name,
-    color: s.color,
-    ...(s.source === 'manual'
-      ? { algorithm: 'MANUAL' as const }
-      : s.source === 'prompt'
-        ? { algorithm: 'SEMIAUTOMATIC' as const, algorithmName: 'MedSAM2', algorithmVersion: 'MedSAM2_latest' }
-        : {
-            algorithm: s.edited ? ('SEMIAUTOMATIC' as const) : ('AUTOMATIC' as const),
-            algorithmName: 'TotalSegmentator',
-            algorithmVersion: '2.18.0',
-          }),
-  }));
   status('Exporting DICOM-SEG…');
   try {
     const labels = seg.exportLabels(geometry);
+    const segments = present.map(seg.toExportSegment);
     const res = await api.exportDicomSeg(current.studyUID, current.seriesUID, segments, labels);
     status(`Stored DICOM-SEG ${res.sopInstanceUID}\n${res.segments.length} segments, ${res.frames} frames`);
   } catch (e) {
@@ -246,11 +230,11 @@ async function reloadSeg(): Promise<void> {
     const r = job.result!;
     const labels = await api.fetchJobLabelmap(jobId);
     geometry = r.geometry;
-    seg.applyAutoResult(r.geometry, labels, r.segments);
-    for (const s of r.segments) {
-      const st = seg.segments.get(s.label)!;
-      st.source = s.algorithm === 'MANUAL' ? 'manual' : s.algorithm === 'SEMIAUTOMATIC' ? 'prompt' : 'auto';
-    }
+    seg.replaceLabelmap(
+      r.geometry,
+      labels,
+      r.segments.map((s) => ({ ...s, source: seg.sourceFromAlgorithm(s.algorithm) })),
+    );
     volumes = seg.computeVolumesMl();
     renderSegments();
     const diffs = r.segments
@@ -324,7 +308,7 @@ function wireUi(): void {
   $('btn-new-segment').addEventListener('click', () => {
     if (!seg.getSegmentationId()) return;
     const label = seg.nextUserLabel();
-    const name = prompt('Segment name', `manual_${label - 199}`)?.trim();
+    const name = prompt('Segment name', `manual_${label - seg.FIRST_USER_LABEL + 1}`)?.trim();
     if (!name) return;
     seg.upsertSegment({ label, name, color: [0, 200, 255], source: 'manual' });
     selectTarget(label);

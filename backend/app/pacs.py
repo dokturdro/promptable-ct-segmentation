@@ -11,6 +11,7 @@ from pathlib import Path
 import pydicom
 import SimpleITK as sitk
 from dicomweb_client.api import DICOMwebClient
+from pydicom.uid import SegmentationStorage
 
 from app.config import settings
 from app.volume import read_dicom_series
@@ -64,13 +65,10 @@ def stow(datasets: list[pydicom.Dataset]) -> None:
     client().store_instances(datasets)
 
 
-SEG_STORAGE = "1.2.840.10008.5.1.4.1.1.66.4"
-
-
 def list_segs(study_uid: str) -> list[dict]:
     rows = client().search_for_instances(
         study_instance_uid=study_uid,
-        search_filters={"SOPClassUID": SEG_STORAGE},
+        search_filters={"SOPClassUID": SegmentationStorage},
         fields=["SeriesDescription", "ContentDate", "ContentTime", "SeriesNumber"],
     )
     out = []

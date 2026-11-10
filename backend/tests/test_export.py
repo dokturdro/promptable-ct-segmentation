@@ -11,8 +11,9 @@ import pydicom
 import pytest
 import SimpleITK as sitk
 
+from app.config import settings
 from app.export import ExportSegment, build_seg, read_seg_onto
-from app.labels import segment_info, totalseg_catalogue
+from app.labels import FIRST_USER_LABEL, segment_info, totalseg_catalogue
 from app.volume import read_dicom_series
 from tests.synthetic import SeriesSpec, write_series
 
@@ -70,22 +71,20 @@ def test_seg_roundtrip_preserves_voxels_and_references(ct, tmp_path: Path):
     assert kidney_type.SegmentedPropertyTypeModifierCodeSequence[0].CodeMeaning == "Left"
     assert descs[1].SegmentAlgorithmType == "AUTOMATIC"
 
-    # Voxel-exact after mapping the SEG's own geometry back onto the CT grid.
+    # Voxel-exact, with the original labels, after mapping the SEG's own geometry back onto
+    # the CT grid.
     back, read = read_seg_onto(pydicom.dcmread(path), img)
-    expected = np.zeros_like(labels)
-    for number, value in enumerate((3, 5, 7), start=1):
-        expected[labels == value] = number
-    np.testing.assert_array_equal(back, expected)
-    assert [(r.number, r.name, r.algorithm) for r in read] == [
-        (1, "kidney_left", "AUTOMATIC"),
-        (2, "liver", "AUTOMATIC"),
-        (3, "pancreas", "AUTOMATIC"),
+    np.testing.assert_array_equal(back, labels)
+    assert [(r.info.label, r.info.name, r.algorithm) for r in read] == [
+        (3, "kidney_left", "AUTOMATIC"),
+        (5, "liver", "AUTOMATIC"),
+        (7, "pancreas", "AUTOMATIC"),
     ]
     # Display colour survives the RGB -> CIELab -> RGB round trip (within rounding).
-    assert np.allclose(read[1].color, cat[5].color, atol=2)
+    assert np.allclose(read[1].info.color, cat[5].color, atol=2)
 
 
-REAL = Path(__file__).resolve().parents[2] / "data" / "raw" / "PANCREAS_0001"
+REAL = settings().raw_dir / "PANCREAS_0001"
 
 
 @pytest.mark.skipif(not REAL.exists(), reason="seed data not downloaded")
@@ -94,9 +93,10 @@ def test_reads_third_party_seg_onto_real_ct():
     img, _ = read_dicom_series(next(REAL.glob("CT_*")))
     labels, read = read_seg_onto(pydicom.dcmread(next(REAL.glob("SEG_*/*.dcm"))), img)
     assert labels.shape == sitk.GetArrayViewFromImage(img).shape
-    assert [r.name for r in read] == ["Pancreas"]
+    # "Pancreas" is not spelled like the TotalSegmentator class, so it gets a user label.
+    assert [(r.info.label, r.info.name) for r in read] == [(FIRST_USER_LABEL, "Pancreas")]
     voxel_ml = float(np.prod(img.GetSpacing())) / 1000
-    assert 40 < (labels == 1).sum() * voxel_ml < 80  # 58 mL reference pancreas
+    assert 40 < (labels == FIRST_USER_LABEL).sum() * voxel_ml < 80  # 58 mL reference pancreas
 
 
 def test_shape_mismatch_rejected(ct):
